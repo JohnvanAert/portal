@@ -115,7 +115,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <NavItem icon={<ShoppingCart size={20}/>} label="Витрина закупок" />
               </Link>
               
-              <NavItem icon={<Users size={20}/>} label="Поставщики" />
+              <Link href="/admin/vendors">
+                <NavItem 
+                  icon={<Users size={20}/>} 
+                  label="Поставщики" 
+                  active={false} // Можешь добавить логику проверки текущего пути
+                />
+              </Link>
             </nav>
 
             <div className="p-4 border-t border-slate-100">
