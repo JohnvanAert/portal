@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Bell, MessageSquare, Clock, Trophy } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { markAllBidsAsRead, markWinnerBidsAsRead } from '@/app/actions/markBidsAsRead'
+import { markAllBidsAsRead, markSpecificBidsAsRead } from '@/app/actions/markBidsAsRead'
 
 interface NotificationBellProps {
   initialBids: any[]
@@ -17,22 +17,26 @@ export default function NotificationBell({ initialBids, userRole, userName }: No
   const menuRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
 
-  // Функция для открытия меню и пометки как "прочитано"
   const handleToggle = async () => {
     const nextState = !isOpen;
     setIsOpen(nextState);
 
-    // Если мы открываем меню и есть новые уведомления
+    // Если открываем меню и есть уведомления
     if (nextState && initialBids.length > 0) {
       try {
         if (userRole === 'admin') {
           await markAllBidsAsRead();
-        } else if (userRole === 'vendor' && userName) {
-          await markWinnerBidsAsRead(userName);
+        } else {
+          // Собираем все ID текущих уведомлений
+          const bidIds = initialBids.map(bid => bid.id);
+          // Помечаем именно их как прочитанные
+          await markSpecificBidsAsRead(bidIds);
         }
-        router.refresh(); // Обновляем данные на сервере, чтобы счетчик обнулился
+        
+        // Обновляем серверные данные
+        router.refresh(); 
       } catch (error) {
-        console.error("Ошибка при обновлении статуса прочитанного:", error);
+        console.error("Ошибка уведомлений:", error);
       }
     }
   }
@@ -73,8 +77,7 @@ export default function NotificationBell({ initialBids, userRole, userName }: No
               initialBids.map((bid) => (
                 <Link 
                   key={bid.id} 
-                  // Если админ — ведем в детали тендера, если поставщик — на главную/страницу тендера
-                  href={userRole === 'admin' ? `/admin/dashboard/tenders/${bid.tenderId}` : `/`}
+                  href={userRole === 'admin' ? `/admin/dashboard/tenders/${bid.tenderId}` : `/tenders/${bid.tenderId}`}
                   onClick={() => setIsOpen(false)}
                   className={`block p-4 hover:bg-blue-50/50 transition-colors border-b border-slate-50 last:border-0 ${bid.type === 'winner' ? 'bg-green-50/30' : ''}`}
                 >
@@ -85,23 +88,17 @@ export default function NotificationBell({ initialBids, userRole, userName }: No
                       {bid.type === 'winner' ? <Trophy size={14} /> : <MessageSquare size={14} />}
                     </div>
                     <div className="space-y-1">
-                      <p className="text-xs leading-tight">
+                      <div className="text-xs leading-tight">
                         {bid.type === 'winner' ? (
-                          <>
-                            <span className="font-bold text-slate-900">Поздравляем!</span> Вы выиграли тендер: 
-                            <span className="font-medium text-green-600"> {bid.tenderTitle}</span>
-                          </>
+                          <p><span className="font-bold text-slate-900">Поздравляем!</span> Вы выиграли: <span className="font-medium text-green-600"> {bid.tenderTitle}</span></p>
                         ) : (
-                          <>
-                            <span className="font-bold text-slate-900">{bid.vendorName}</span> подал заявку на 
-                            <span className="font-medium text-blue-600"> {bid.tenderTitle}</span>
-                          </>
+                          <p><span className="font-bold text-slate-900">{bid.vendorName}</span> подал заявку</p>
                         )}
-                      </p>
+                      </div>
                       <div className="flex items-center gap-2 text-[10px] text-slate-400">
                         <Clock size={10} />
-                        {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString('ru-RU') : 'Недавно'}
-                        <span className="font-bold text-slate-900 ml-auto">{Number(bid.price).toLocaleString()} ₽</span>
+                        {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString('ru-RU') : '01.02.2026'}
+                        <span className="font-bold text-slate-900 ml-auto">{Number(bid.price).toLocaleString()} ₸</span>
                       </div>
                     </div>
                   </div>
@@ -111,16 +108,6 @@ export default function NotificationBell({ initialBids, userRole, userName }: No
               <div className="p-10 text-center text-slate-400 text-sm">Нет новых уведомлений</div>
             )}
           </div>
-          
-          {userRole === 'admin' && (
-            <Link 
-              href="/admin/bids" 
-              onClick={() => setIsOpen(false)}
-              className="block p-3 text-center text-xs font-bold text-slate-500 hover:text-blue-600 bg-slate-50 border-t border-slate-100 transition-colors"
-            >
-              Смотреть все заявки
-            </Link>
-          )}
         </div>
       )}
     </div>

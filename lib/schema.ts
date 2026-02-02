@@ -8,6 +8,7 @@ export const tenders = pgTable('tenders', {
   price: text('price').notNull(),
   type: text('type').notNull(),
   status: text('status').default('Активен'),
+  description: text('description'),
   winnerId: integer('winner_id'), // Сюда запишем ID заявки (bid) победителя
   // 'created_at' — имя в БД, createdAt — имя в коде
   createdAt: timestamp('created_at').defaultNow(),

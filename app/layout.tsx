@@ -114,7 +114,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <Link href="/">
                 <NavItem icon={<ShoppingCart size={20}/>} label="Витрина закупок" />
               </Link>
-              
+              {session.user.role === 'vendor' && (
+                <Link href="/my-bids"> {/* Важно: путь без (vendor) */}
+                  <NavItem icon={<ClipboardList size={20}/>} label="Мои заявки" />
+                </Link>
+              )}
               <Link href="/admin/vendors">
                 <NavItem 
                   icon={<Users size={20}/>} 
