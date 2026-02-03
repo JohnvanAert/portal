@@ -5,6 +5,7 @@ import { registerWithEDS, parseCertificateData } from '@/app/actions/auth'
 import { signDataWithNCALayer } from '@/lib/ncaService' 
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import RegisterRegularForm from './RegisterRegularForm'
 
 export default function RegisterForm() {
   const [error, setError] = useState<string | null>(null)
@@ -12,6 +13,10 @@ export default function RegisterForm() {
   const [edsData, setEdsData] = useState<any>(null) 
   const router = useRouter()
 
+  const [mode, setMode] = useState<'eds' | 'manual'>('eds')
+  if (mode === 'manual') {
+    return <RegisterRegularForm onSwitch={() => setMode('eds')} />
+  }
   // 1. Считываем реальные данные из ЭЦП
   async function handleEdsScan() {
     console.log("🚀 Нажата кнопка сканирования ЭЦП");
@@ -160,6 +165,15 @@ export default function RegisterForm() {
             Войти
           </Link>
         </p>
+        <div className="text-center">
+              <button 
+                onClick={() => setMode('manual')} // Переключаем на ручной ввод
+                type="button"
+                className="text-[10px] text-slate-300 hover:text-blue-400 transition-colors uppercase font-bold tracking-tighter"
+              >
+                Проблемы с ЭЦП? Ввести данные вручную
+              </button>
+            </div>
       </div>
     </div>
   )

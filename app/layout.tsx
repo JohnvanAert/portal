@@ -42,6 +42,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     );
   }
 
+  // НОВОЕ УСЛОВИЕ: Если это админ, отдаем детей напрямую.
+  // Его собственный сайдбар отрисуется в app/admin/layout.tsx
+  if (session.user.role === 'admin') {
+    return (
+      <html lang="ru">
+        <body className={`${geist.className} antialiased bg-slate-100`}>
+          <Providers>{children}</Providers>
+        </body>
+      </html>
+    );
+  }
   // 2. Логика уведомлений через ID пользователя (более надежно)
   let notifications: any[] = [];
 

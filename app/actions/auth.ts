@@ -205,3 +205,41 @@ export async function loginWithEDS(edsData: any) {
     return { error: "Ошибка сервера при проверке ЭЦП." };
   }
 }
+
+export async function registerRegular(formData: FormData) {
+  try {
+    const name = formData.get('name') as string;
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+
+    if (!email || !password || !name) {
+      return { error: "Все поля обязательны для заполнения" };
+    }
+
+    // 1. Проверяем, существует ли пользователь
+    const existingUser = await db.query.users.findFirst({
+      where: eq(users.email, email),
+    });
+
+    if (existingUser) {
+      return { error: "Пользователь с таким Email уже существует" };
+    }
+
+    // 2. Хэшируем пароль
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 3. Создаем пользователя (по умолчанию роль vendor)
+    await db.insert(users).values({
+      id: crypto.randomUUID(),
+      name,
+      email,
+      password: hashedPassword,
+      role: 'vendor', // По умолчанию регистрируем как поставщика
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Registration error:", error);
+    return { error: "Произошла ошибка при регистрации" };
+  }
+}
