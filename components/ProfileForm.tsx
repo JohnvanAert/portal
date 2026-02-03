@@ -45,7 +45,7 @@ export default function ProfileForm({ userData }: { userData: any }) {
       </div>
 
       {/* Секция: Организация */}
-      {userData.role === 'vendor' && (
+      {userData.organization && (
         <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm">
           <div className="flex items-center gap-3 mb-8">
             <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">

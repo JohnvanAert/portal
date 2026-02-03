@@ -45,7 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // 2. Логика уведомлений через ID пользователя (более надежно)
   let notifications: any[] = [];
 
-  if (session.user.role === 'admin') {
+  if (session.user.role === 'customer') {
     notifications = await db.select({
       id: bids.id,
       vendorName: bids.vendorName,
@@ -95,7 +95,23 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
             
             <nav className="flex-1 px-4 space-y-1">
-              {session.user.role === 'admin' && (
+              {session.user.role === 'customer' && (
+                <>
+                  <Link href="/customer/dashboard">
+                    <NavItem icon={<LayoutDashboard size={20}/>} label="Дашборд" />
+                  </Link>
+                  <Link href="/customer/bids">
+                    <div className="relative group">
+                      <NavItem icon={<ClipboardList size={20}/>} label="Заявки" />
+                      {notifications.some(n => n.type === 'new_bid') && (
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 h-2 w-2 bg-blue-500 rounded-full ring-4 ring-blue-50"></span>
+                      )}
+                    </div>
+                  </Link>
+                </>
+              )}
+
+               {session.user.role === 'admin' && (
                 <>
                   <Link href="/admin/dashboard">
                     <NavItem icon={<LayoutDashboard size={20}/>} label="Дашборд" />
@@ -119,14 +135,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <NavItem icon={<ClipboardList size={20}/>} label="Мои заявки" />
                 </Link>
               )}
-              <Link href="/admin/vendors">
+              {session.user.role === 'customer' && (
+              <Link href="/customer/vendors">
                 <NavItem 
                   icon={<Users size={20}/>} 
                   label="Поставщики" 
                   active={false} // Можешь добавить логику проверки текущего пути
                 />
               </Link>
+              )}
             </nav>
+            
 
             <div className="p-4 border-t border-slate-100">
               <form
@@ -158,21 +177,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <div className="flex items-center gap-6">
                 <NotificationBell 
                   initialBids={notifications} 
-                  userRole={session.user.role} 
+                  userRole={session.user.role as string}
                   userName={session.user.name ?? undefined} 
                 />
                 
                 <Link href="/profile" className="flex items-center gap-3 pl-6 border-l border-slate-100 hover:opacity-80 transition-opacity">
-                  <div className="flex flex-col items-end">
-                    <span className="text-sm font-black text-slate-900">{session.user.name}</span>
-                    <span className="text-[10px] text-blue-500 uppercase font-black tracking-widest">
-                      {session.user.role === 'admin' ? 'Заказчик' : 'Поставщик'}
-                    </span>
-                  </div>
-                  <div className="h-10 w-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
-                    <UserCircle size={24} />
-                  </div>
-                </Link>
+                <div className="flex flex-col items-end">
+                  <span className="text-sm font-black text-slate-900">{session.user.name}</span>
+                  <span className="text-[10px] text-blue-500 uppercase font-black tracking-widest">
+                    {session.user.role === 'admin' ? 'Администратор' : 
+                    session.user.role === 'customer' ? 'Заказчик' : 'Поставщик'}
+                  </span>
+                </div>
+                <div className="h-10 w-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
+                  <UserCircle size={24} />
+                </div>
+              </Link>
               </div>
             </header>
 

@@ -111,7 +111,7 @@ export default function RegisterForm() {
             type="button"
             className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 active:scale-[0.98] disabled:opacity-50"
           >
-            {loading ? 'Обработка данных...' : 'Считать данные ЭЦП'}
+            {loading ? 'Обработка данных...' : 'Выбрать сертификат'}
           </button>
           <p className="text-[11px] text-center text-slate-400 px-4">
             Нажмите кнопку и выберите ключ <b>AUTH_RSA</b> или <b>GOST</b> в NCALayer

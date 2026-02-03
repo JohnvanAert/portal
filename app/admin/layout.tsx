@@ -5,7 +5,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const session = await auth();
 
   // Если не админ — выкидываем на страницу входа или главную
-  if (!session || session.user.role !== "superadmin") {
+  if (!session || session.user.role !== "admin") {
     redirect("/admin/login"); 
   }
 
