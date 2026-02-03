@@ -15,6 +15,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <aside className="w-64 bg-slate-900 text-white p-6">
         <h2 className="text-xl font-bold mb-10">B-Portal Admin</h2>
         <nav className="space-y-4">
+          <a href="/admin/" className="block hover:text-blue-400 font-medium">Дашборд</a>
+          <a href="/admin/dashboard" className="block hover:text-blue-400 font-medium">Лоты</a>
           <a href="/admin/users" className="block hover:text-blue-400 font-medium">Пользователи</a>
           <a href="/admin/logs" className="block hover:text-blue-400 font-medium">Логи активности</a>
           <hr className="border-slate-800" />

@@ -4,27 +4,32 @@ import { NextResponse } from "next/server"
 export default auth((req) => {
   const { nextUrl } = req
   const isLoggedIn = !!req.auth
-  const userRole = req.auth?.user?.role // Получаем роль из сессии
+  const userRole = req.auth?.user?.role
 
-  const isOnDashboard = nextUrl.pathname.startsWith("/admin") || nextUrl.pathname.startsWith("/dashboard")
   const isOnLoginPage = nextUrl.pathname.startsWith("/login")
+  const isOnRegisterPage = nextUrl.pathname.startsWith("/register")
+  const isAtRoot = nextUrl.pathname === "/"
+  const isOnAdminArea = nextUrl.pathname.startsWith("/admin")
 
-  // 1. Если залогинен и пытается зайти на /login
-  if (isOnLoginPage && isLoggedIn) {
-    // Редиректим в зависимости от роли, чтобы не попасть в тупик
+  // 1. Если залогинен и пытается зайти на страницы входа/регистрации
+  if ((isOnLoginPage || isOnRegisterPage) && isLoggedIn) {
     const destination = userRole === "admin" ? "/admin/dashboard" : "/"
     return NextResponse.redirect(new URL(destination, nextUrl))
   }
 
-  // 2. Защита админ-панели
-  if (isOnDashboard) {
+  // 2. Если АДМИН зашел на главную (корневую) страницу
+  // Это уберет пустой экран без сайдбара, который ты видел
+  if (isAtRoot && isLoggedIn && userRole === "admin") {
+    return NextResponse.redirect(new URL("/admin/dashboard", nextUrl))
+  }
+
+  // 3. Защита админ-панели
+  if (isOnAdminArea) {
     if (!isLoggedIn) {
-      // Не залогинен — на вход
       return NextResponse.redirect(new URL("/login", nextUrl))
     }
     if (userRole !== "admin") {
-      // Залогинен, но не админ (Подрядчик) — гоним на главную витрину
-      // Это предотвратит бесконечный редирект на /login
+      // Если обычный юзер лезет в админку — возвращаем на витрину
       return NextResponse.redirect(new URL("/", nextUrl))
     }
   }
@@ -33,6 +38,5 @@ export default auth((req) => {
 })
 
 export const config = {
-  // Исключаем системные пути
   matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 }

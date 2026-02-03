@@ -6,7 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth"; // Предполагается, что у вас настроен NextAuth
 
-export async function updateUserRole(targetUserId: string, newRole: "admin" | "vendor") {
+export async function updateUserRole(targetUserId: string, newRole: "admin" | "vendor" | "customer") {
   const session = await auth();
   
   // Проверка: только админ может менять роли

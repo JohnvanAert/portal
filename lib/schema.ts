@@ -2,7 +2,7 @@ import { pgTable, serial, text, timestamp, integer, boolean, uuid, jsonb, pgEnum
 import { relations } from 'drizzle-orm';
 
 
-export const roleEnum = pgEnum("role", ["superadmin", "admin", "vendor"]);
+export const roleEnum = pgEnum("role", ["admin", "customer", "vendor"]);
 // 1. Таблица тендеров (Лоты)
 export const tenders = pgTable('tenders', {
   id: serial('id').primaryKey(),
@@ -60,7 +60,7 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   password: text('password').notNull(), // Хэшированный пароль
   name: text('name').notNull(),
-  role: text('role').$type<'admin' | 'vendor'>().default('vendor'),
+  role: text('role').$type<'admin' | 'customer' | 'vendor'>().default('vendor'),
   iin: text('iin').unique(), // Оставим для будущей связки с ЭЦП
   createdAt: timestamp('created_at').defaultNow(),
 });

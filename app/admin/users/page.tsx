@@ -52,17 +52,18 @@ export default async function AdminPage() {
                       ? 'bg-purple-100 text-purple-600' 
                       : 'bg-blue-100 text-blue-600'
                   }`}>
-                    {user.role === 'admin' ? 'Заказчик' : 'Поставщик'}
+                    {user.role === 'admin' ? 'Администратор' : 
+                    user.role === 'customer' ? 'Заказчик' : 'Поставщик'}
                   </span>
                 </td>
                 <td className="p-6">
                   <form action={async () => {
                     'use server'
-                    const nextRole = user.role === 'admin' ? 'vendor' : 'admin';
+                    const nextRole = user.role === 'vendor' ? 'customer' : 'vendor';
                     await updateUserRole(user.id, nextRole);
                   }}>
                     <button className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors">
-                      Назначить {user.role === 'admin' ? 'Поставщиком' : 'Заказчиком'}
+                      Назначить {user.role === 'vendor' ? 'Заказчиком' : 'Поставщиком'}
                     </button>
                   </form>
                 </td>
