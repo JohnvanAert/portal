@@ -2,12 +2,15 @@ import { db } from '@/lib/db';
 import { bids, tenders } from '@/lib/schema';
 import { eq, desc } from 'drizzle-orm';
 import { auth } from "@/auth";
+import { redirect } from "next/navigation";
 import { ClipboardList, Trophy, Timer, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 export default async function MyBidsPage() {
   const session = await auth();
-  if (!session?.user) return null;
+  if (!session?.user) {
+    redirect("/login");
+  }
 
   // Получаем заявки именно этого поставщика
   const userBids = await db

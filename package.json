@@ -11,19 +11,25 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
     "@prisma/client": "^7.3.0",
+    "asn1js": "^3.0.7",
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "^0.45.1",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
+    "pkijs": "^3.3.3",
     "prisma": "^7.3.0",
+    "pvutils": "^1.1.5",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "recharts": "^3.7.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/asn1js": "^3.0.6",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
+    "@types/pkijs": "^0.0.14",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^17.2.3",

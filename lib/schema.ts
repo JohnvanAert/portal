@@ -1,6 +1,8 @@
-import { pgTable, serial, text, timestamp, integer, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, timestamp, integer, boolean, uuid, jsonb, pgEnum } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
+
+export const roleEnum = pgEnum("role", ["superadmin", "admin", "vendor"]);
 // 1. Таблица тендеров (Лоты)
 export const tenders = pgTable('tenders', {
   id: serial('id').primaryKey(),
@@ -45,13 +47,12 @@ export const bidsRelations = relations(bids, ({ one }) => ({
   }),
 }));
 
-export const organizations = pgTable('organizations', {
-  id: serial('id').primaryKey(),
-  name: text('name').notNull(),
-  bin: text('bin').unique(),
-  userId: text('user_id')
-    .references(() => users.id, { onDelete: 'cascade' })
-    .notNull(),
+export const organizations = pgTable("organizations", {
+  // Вместо serial() используем явный инкремент
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(), 
+  name: text("name").notNull(),
+  bin: text("bin"),
+  userId: text("userId").notNull().references(() => users.id),
 });
 
 export const users = pgTable('users', {
@@ -78,3 +79,13 @@ export const organizationsRelations = relations(organizations, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
+export const auditLogs = pgTable("audit_logs", {
+  // Аналогично здесь
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: text("userId").notNull().references(() => users.id),
+  action: text("action").notNull(),
+  targetId: text("targetId"),
+  details: jsonb("details"),
+  createdAt: timestamp("createdAt").defaultNow(),
+});

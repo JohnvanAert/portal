@@ -1,50 +1,207 @@
 'use server'
 
 import { db } from "@/lib/db";
-import { users, organizations } from "@/lib/schema";
-import { eq } from "drizzle-orm";
+import { users, organizations, auditLogs } from "@/lib/schema";
+import { eq, or } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto"; 
+// Библиотеки для парсинга ЭЦП
+import * as asn1js from 'asn1js';
+import * as pkijs from 'pkijs';
 
-export async function registerUser(formData: FormData) {
-  const email = formData.get("email") as string;
-  const password = formData.get("password") as string;
-  const name = formData.get("name") as string;
-  const role = formData.get("role") as 'admin' | 'vendor';
+/**
+ * ПАРСЕР: Извлекает данные напрямую из сертификата X509
+ */
+export async function parseCertificateData(certificateBase64: string) {
+  try {
+    // 1. Декодируем Base64 в ArrayBuffer
+    const certBuffer = Buffer.from(certificateBase64, 'base64');
+    const arrayBuffer = certBuffer.buffer.slice(
+      certBuffer.byteOffset, 
+      certBuffer.byteOffset + certBuffer.byteLength
+    );
 
-  try { 
-    // 1. Проверяем, существует ли уже такой email
+    // 2. Парсим ASN.1 структуру
+    const asn1 = asn1js.fromBER(arrayBuffer);
+    if (asn1.offset === -1) throw new Error("Ошибка парсинга ASN.1 структуры");
+
+    // 3. Инициализируем структуру Сертификата
+    const cert = new pkijs.Certificate({ schema: asn1.result });
+    const subject = cert.subject.typesAndValues;
+
+    const result = {
+      fio: "",
+      iin: "", // Добавляем ИИН для надежности
+      bin: "",
+      orgName: "",
+      email: ""
+    };
+
+    // 4. Извлекаем данные из полей сертификата (OID)
+    subject.forEach((item: any) => {
+      const type = item.type;
+      // Более надежный способ извлечения значения для разных типов кодировок
+      let value = "";
+      try {
+        value = item.value.valueBlock.value;
+        if (Array.isArray(value)) {
+          // Если значение — это массив (случай с вложенными блоками), склеиваем в строку
+          value = value.map(v => v.valueBlock?.value || v).join('');
+        }
+      } catch (e) {
+        value = String(item.value.valueBlock.value);
+      }
+
+      const strValue = String(value).trim();
+
+      // 2.5.4.3 - CN (ФИО)
+      if (type === "2.5.4.3") result.fio = strValue; 
+      
+      // 2.5.4.11 - OU (Часто здесь ИИН/БИН с префиксами)
+      if (type === "2.5.4.11") { 
+        if (strValue.includes('BIN')) result.bin = strValue.replace('BIN', '');
+        if (strValue.includes('IIN')) result.iin = strValue.replace('IIN', '');
+      }
+
+      // 2.5.4.10 - O (Организация)
+      if (type === "2.5.4.10") result.orgName = strValue; 
+      
+      // 2.5.4.5 - SERIALNUMBER (Главный источник ИИН в РК)
+      if (type === "2.5.4.5") {
+        if (strValue.startsWith('IIN')) {
+          result.iin = strValue.replace('IIN', '');
+        } else if (strValue.startsWith('BIN')) {
+          result.bin = strValue.replace('BIN', '');
+        } else if (strValue.length === 12) {
+          result.iin = strValue;
+        }
+      }
+    });
+
+    // 5. Попытка найти Email в расширениях (Alternative Name), если в Subject его нет
+    if (!result.email && cert.extensions) {
+      for (const ext of cert.extensions) {
+        if (ext.extnID === "2.5.29.17") { // Subject Alternative Name
+          // Это сложная структура, но иногда там просто строка
+          try {
+            const altNames = ext.extnValue.valueBlock.value;
+            // Простейший поиск строки похожей на email
+            const emailMatch = String.fromCharCode(...new Uint8Array(altNames)).match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+            if (emailMatch) result.email = emailMatch[0];
+          } catch (e) { /* ignore */ }
+        }
+      }
+    }
+
+    if (!result.fio) throw new Error("Не удалось извлечь ФИО из ключа");
+
+    // Если email всё еще пуст, но нам нужно войти, 
+    // мы можем использовать IIN@b-portal.kz как временный ID, 
+    // но лучше требовать email при регистрации.
+    
+    return { success: true, data: result };
+  } catch (error: any) {
+    console.error("Критическая ошибка парсинга:", error);
+    return { error: "Не удалось разобрать сертификат. Убедитесь, что выбрали верный ключ (AUTH_RSA или GOST)." };
+  }
+}
+
+/**
+ * Регистрация пользователя в БД
+ * Исправлено: Транзакции заменены на последовательные запросы для Neon HTTP
+ */
+export async function registerWithEDS(edsData: any, password: string) {
+  // Добавляем iin в деструктуризацию (он приходит из вашего парсера)
+  const { fio, email, bin, orgName, iin } = edsData;
+
+  try {
+    // 1. Проверка на дубликат по Email ИЛИ по ИИН
     const existingUser = await db.query.users.findFirst({
-      where: eq(users.email, email),
+      where: iin 
+        ? or(eq(users.email, email), eq(users.iin, iin))
+        : eq(users.email, email),
     });
 
     if (existingUser) {
-      return { error: "Этот email уже занят" };
+      const field = existingUser.email === email ? "email" : "ИИН";
+      return { error: `Пользователь с таким ${field} уже существует` };
     }
 
-    // 2. Хэшируем пароль (чтобы auth.ts мог его потом сравнить)
+    // 2. Подготовка данных
     const hashedPassword = await bcrypt.hash(password, 10);
-    const userId = crypto.randomUUID();
+    const userId = randomUUID();
 
-    // 3. Создаем пользователя
+    // 3. Создаем пользователя (добавлено поле iin)
     await db.insert(users).values({
       id: userId,
-      email,
-      name,
+      email: email,
+      iin: iin || null, // Сохраняем ИИН для последующих входов
+      name: fio,
       password: hashedPassword,
-      role: role || 'vendor',
+      role: 'vendor',
     });
 
-    // 4. Если это поставщик, создаем для него пустую запись организации
-    if (role === 'vendor') {
-      await db.insert(organizations).values({
-        name: `Компания ${name}`,
-        userId: userId,
-      });
-    }
+    // 4. Создаем организацию
+    await db.insert(organizations).values({
+      name: orgName || `ИП ${fio}`,
+      bin: bin || null,
+      userId: userId, 
+    });
+
+    // 5. Записываем аудит-лог
+    await db.insert(auditLogs).values({
+      userId: userId,
+      action: "USER_REGISTERED",
+      details: {
+        fio,
+        iin, // Добавляем в логи для истории
+        bin,
+        orgName,
+        registeredAt: new Date().toISOString()
+      }
+    });
 
     return { success: true };
+  } catch (error: any) {
+    console.error("Registration Error:", error);
+    return { error: "Ошибка при сохранении в базу данных. Проверьте соединение." };
+  }
+}
+
+/**
+ * Авторизация через ЭЦП
+ */
+export async function loginWithEDS(edsData: any) {
+  // Извлекаем данные, которые прислал фронтенд
+  const { iin, email } = edsData;
+
+  try {
+    // Ищем пользователя. Приоритет ИИН, так как email в ключе может быть неверным.
+    const user = await db.query.users.findFirst({
+      where: iin 
+        ? eq(users.iin, iin) 
+        : eq(users.email, email),
+    });
+
+    // Если пользователь не найден (как в вашем логе с ИИН 851031399067)
+    if (!user) {
+      return { 
+        error: `Пользователь с ИИН ${iin || email} не найден. Пройдите регистрацию.` 
+      };
+    }
+
+    // Возвращаем данные для сессии
+    return { 
+      success: true, 
+      user: { 
+        id: user.id, 
+        email: user.email, 
+        name: user.name,
+        role: user.role 
+      } 
+    };
   } catch (error) {
-    console.error("Registration error:", error);
-    return { error: "Произошла ошибка при регистрации" };
+    console.error("EDS Login Error:", error);
+    return { error: "Ошибка сервера при проверке ЭЦП." };
   }
 }

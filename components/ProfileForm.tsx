@@ -1,62 +1,21 @@
 'use client'
 
-import { updateProfile } from "@/app/actions/user"
-import { User, Building2, IdCard, Mail, CheckCircle2 } from "lucide-react"
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { useSession } from "next-auth/react"
-
+import { User, Building2, IdCard, Mail } from "lucide-react"
 
 export default function ProfileForm({ userData }: { userData: any }) {
-  const { data: session, update } = useSession()
-  const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
-  const router = useRouter()
-
-  async function handleSubmit(formData: FormData) {
-    setLoading(true);
-    setMessage(null);
-    
-    try {
-      const result = await updateProfile(formData);
-
-      if (result?.success) {
-        // Обновляем сессию (теперь auth.ts понимает этот вызов)
-        if (update) {
-          await update({
-            ...session,
-            user: {
-              ...session?.user,
-              name: formData.get('name') as string,
-            },
-          });
-        }
-
-        setMessage({ type: 'success', text: 'Данные успешно обновлены!' });
-        
-        // Мягкое обновление серверных компонентов без перезагрузки всей страницы
-        router.refresh(); 
-      } else {
-        setMessage({ type: 'error', text: result?.error || 'Произошла ошибка' });
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Ошибка при сохранении' });
-    } finally {
-      setLoading(false);
-    }
-  }
+  // Вспомогательный компонент для отображения "замороженного" поля
+  const ReadOnlyField = ({ label, value, icon: Icon, colorClass = "blue" }: any) => (
+    <div className="space-y-2">
+      <label className="text-sm font-bold text-slate-500 ml-1">{label}</label>
+      <div className="w-full border border-slate-100 bg-slate-50/50 p-4 rounded-2xl flex items-center gap-3 font-semibold text-slate-700 shadow-sm">
+        {Icon && <Icon size={18} className={`text-${colorClass}-500`} />}
+        {value || '—'}
+      </div>
+    </div>
+  );
 
   return (
-    <form action={handleSubmit} className="space-y-8">
-      {message && (
-        <div className={`p-4 rounded-2xl border font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top-2 ${
-          message.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-red-50 border-red-100 text-red-600'
-        }`}>
-          {message.type === 'success' && <CheckCircle2 size={18} />}
-          {message.text}
-        </div>
-      )}
-
+    <div className="space-y-8 animate-in fade-in duration-500">
       {/* Секция: Личные данные */}
       <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm">
         <div className="flex items-center gap-3 mb-8">
@@ -67,33 +26,21 @@ export default function ProfileForm({ userData }: { userData: any }) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 ml-1">ФИО</label>
-            <input 
-              name="name"
-              defaultValue={userData.name || ''}
-              className="w-full border border-slate-200 p-4 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all font-medium"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 ml-1">Email</label>
-            <div className="w-full border border-slate-100 bg-slate-50 p-4 rounded-2xl text-slate-400 flex items-center gap-3 font-medium cursor-not-allowed">
-              <Mail size={18} />
-              {userData.email}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 ml-1">ИИН</label>
-            <div className="relative">
-              <IdCard className="absolute left-4 top-4 text-slate-400" size={20} />
-              <input 
-                name="iin"
-                defaultValue={userData.iin || ''}
-                placeholder="12-значный номер"
-                className="w-full border border-slate-200 pl-12 pr-4 py-4 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all font-medium"
-              />
-            </div>
-          </div>
+          <ReadOnlyField 
+            label="ФИО" 
+            value={userData.name} 
+            icon={User} 
+          />
+          <ReadOnlyField 
+            label="Email" 
+            value={userData.email} 
+            icon={Mail} 
+          />
+          <ReadOnlyField 
+            label="ИИН" 
+            value={userData.iin} 
+            icon={IdCard} 
+          />
         </div>
       </div>
 
@@ -108,35 +55,25 @@ export default function ProfileForm({ userData }: { userData: any }) {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-700 ml-1">Название компании</label>
-              <input 
-                name="orgName"
-                defaultValue={userData.organization?.name || ''}
-                className="w-full border border-slate-200 p-4 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all font-medium"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-700 ml-1">БИН</label>
-              <input 
-                name="bin"
-                defaultValue={userData.organization?.bin || ''}
-                className="w-full border border-slate-200 p-4 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all font-medium"
-              />
-            </div>
+            <ReadOnlyField 
+              label="Название компании" 
+              value={userData.organization?.name} 
+              icon={Building2} 
+              colorClass="emerald"
+            />
+            <ReadOnlyField 
+              label="БИН" 
+              value={userData.organization?.bin} 
+              icon={IdCard} 
+              colorClass="emerald"
+            />
           </div>
         </div>
       )}
 
-      <div className="flex justify-end">
-        <button 
-          type="submit"
-          disabled={loading}
-          className="bg-slate-900 text-white font-black px-12 py-4 rounded-2xl hover:bg-blue-600 transition-all shadow-xl shadow-blue-100 active:scale-95 disabled:opacity-50"
-        >
-          {loading ? 'Сохранение...' : 'Сохранить изменения'}
-        </button>
-      </div>
-    </form>
+      <p className="text-center text-slate-400 text-sm font-medium">
+        Данные профиля синхронизированы с вашим ЭЦП ключом и недоступны для ручного изменения.
+      </p>
+    </div>
   )
 }
