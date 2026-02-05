@@ -31,7 +31,7 @@ export default async function VendorPage() {
           <div key={t.id} className="bg-white p-6 rounded-2xl border flex justify-between items-center shadow-sm hover:shadow-md transition-shadow">
             <div className="space-y-2">
               <span className="text-[10px] font-bold text-blue-600 uppercase bg-blue-50 px-2 py-1 rounded">
-                {t.type}
+                {t.category} {t.subCategory ? `• ${t.subCategory}` : ''}
               </span>
               <h3 className="text-lg font-bold text-slate-800">{t.title}</h3>
               <p className="text-sm text-slate-500 font-mono">ID: {t.id}</p>

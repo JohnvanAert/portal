@@ -4,18 +4,34 @@ import { relations } from 'drizzle-orm';
 
 export const roleEnum = pgEnum("role", ["admin", "customer", "vendor"]);
 // 1. Таблица тендеров (Лоты)
+// 1. Таблица тендеров (Лоты) с поддержкой динамических параметров и файлов
 export const tenders = pgTable('tenders', {
   id: serial('id').primaryKey(),
   title: text('title').notNull(),
   price: text('price').notNull(),
-  type: text('type').notNull(),
-  status: text('status').default('Активен'),
+  
+  // Логика категорий
+  category: text('category').notNull(), 
+  subCategory: text('sub_category'),    
+  workType: text('work_type'),          
+  
+  // ФАЙЛ 1: Смета (Excel)
+  attachmentUrl: text('attachment_url'),   
+  attachmentName: text('attachment_name'), 
+
+  // ФАЙЛ 2: Ведомость объемов (PDF/Doc)
+  volumeUrl: text('volume_url'),           // Добавлено
+  volumeName: text('volume_name'),         // Добавлено
+
+  // Динамические требования
+  requirements: jsonb('requirements').$type<string[]>().default(['Отсутствие налоговой задолженности']),
+
+  status: text('status').default('Активен'), 
   description: text('description'),
-  winnerId: integer('winner_id'), // Сюда запишем ID заявки (bid) победителя
-  // 'created_at' — имя в БД, createdAt — имя в коде
+  
+  winnerId: integer('winner_id'), 
   createdAt: timestamp('created_at').defaultNow(),
 });
-
 // 2. Таблица откликов (Предложения от поставщиков)
 export const bids = pgTable('bids', {
   id: serial('id').primaryKey(),
