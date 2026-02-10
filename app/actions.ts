@@ -60,8 +60,8 @@ export async function createTender(formData: FormData) {
       requirements, 
       attachmentUrl,   
       attachmentName,
-      // volumeUrl,   // Раскомментируй, когда добавишь в схему
-      // volumeName,  // Раскомментируй, когда добавишь в схему
+      volumeUrl,   // Раскомментируй, когда добавишь в схему
+      volumeName,  // Раскомментируй, когда добавишь в схему
       status: "Активен" 
     });
     

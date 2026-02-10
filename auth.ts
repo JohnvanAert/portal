@@ -92,7 +92,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const role = (auth?.user as any)?.role;
 
       if (isLoggedIn && nextUrl.pathname === '/') {
-        if (role === 'admin') return Response.redirect(new URL('/dashboard', nextUrl));
+        if (role === 'admin') return Response.redirect(new URL('/admin/dashboard', nextUrl));
         if (role === 'customer') return Response.redirect(new URL('/customer/dashboard', nextUrl));
         return Response.redirect(new URL('/vendor', nextUrl));
       }

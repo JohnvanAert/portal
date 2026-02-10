@@ -1,33 +1,52 @@
 import { db } from '@/lib/db';
-import { tenders } from '@/lib/schema';
+import { tenders, users } from '@/lib/schema';
 import CreateTenderModal from '@/components/CreateTenderModal';
-import { desc } from 'drizzle-orm';
+import { desc, sql, eq } from 'drizzle-orm'; // Добавлен sql
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import Link from 'next/link'; // Импортируем Link
-import { ChevronRight, MessageSquare } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronRight, MessageSquare, ChevronLeft } from 'lucide-react';
 
-export default async function AdminDashboard() {
+export default async function AdminDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const session = await auth();
 
   if (session?.user?.role !== "admin") {
     redirect("/login"); 
   }
 
-  // Используем db.query для автоматического получения связанных данных (bids)
+
+  
+  // --- ЛОГИКА ПАГИНАЦИИ ---
+  const { page: pageParam } = await searchParams;
+  const currentPage = Number(pageParam) || 1;
+  const ITEMS_PER_PAGE = 8; 
+  const offset = (currentPage - 1) * ITEMS_PER_PAGE;
+
+  // Получаем тендеры с лимитом и связями (bids)
   const myTenders = await db.query.tenders.findMany({
     orderBy: [desc(tenders.createdAt)],
+    limit: ITEMS_PER_PAGE,
+    offset: offset,
     with: {
-      bids: true, // Это подтянет массив заявок для каждого тендера
+      bids: true,
     },
   });
+
+  // Считаем общее количество всех тендеров в системе
+  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(tenders);
+  const totalPages = Math.ceil(count / ITEMS_PER_PAGE);
+  // --- КОНЕЦ ЛОГИКИ ---
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
       <div className="flex justify-between items-center mb-10">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Панель Заказчика</h1>
-          <p className="text-slate-500">Добро пожаловать, {session.user?.name}!</p>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Панель Администратора</h1>
+          <p className="text-slate-500 font-medium">Добро пожаловать, <span className="text-green-600">{session.user?.name}</span>!</p>
         </div>
         <CreateTenderModal />
       </div>
@@ -51,11 +70,11 @@ export default async function AdminDashboard() {
                     <span className="font-bold text-slate-800 group-hover:text-green-600 transition-colors">
                       {t.title}
                     </span>
-                    <div className="text-[10px] text-slate-400 mt-0.5">ID: {t.id}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5 font-mono">ID: {t.id}</div>
                   </Link>
                 </td>
-                <td className="p-5 font-medium text-slate-600">
-                  {Number(t.price).toLocaleString('ru-RU')} ₽
+                <td className="p-5 font-bold text-slate-900 italic">
+                  {Number(t.price).toLocaleString('ru-RU')} ₸
                 </td>
                 <td className="p-5">
                   <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${
@@ -82,12 +101,39 @@ export default async function AdminDashboard() {
           </tbody>
         </table>
         
+        {/* БЛОК ПАГИНАЦИИ */}
+        {totalPages > 1 && (
+          <div className="p-5 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              Страница {currentPage} из {totalPages}
+            </span>
+            <div className="flex gap-2">
+              <Link
+                href={`?page=${currentPage - 1}`}
+                className={`p-2 rounded-xl border bg-white transition-all ${
+                  currentPage <= 1 ? 'pointer-events-none opacity-30' : 'hover:border-green-500 text-slate-600 shadow-sm'
+                }`}
+              >
+                <ChevronLeft size={20} />
+              </Link>
+              <Link
+                href={`?page=${currentPage + 1}`}
+                className={`p-2 rounded-xl border bg-white transition-all ${
+                  currentPage >= totalPages ? 'pointer-events-none opacity-30' : 'hover:border-green-500 text-slate-600 shadow-sm'
+                }`}
+              >
+                <ChevronRight size={20} />
+              </Link>
+            </div>
+          </div>
+        )}
+
         {myTenders.length === 0 && (
           <div className="p-20 text-center">
             <div className="text-slate-200 mb-4 flex justify-center">
               <MessageSquare size={48} />
             </div>
-            <p className="text-slate-400 font-medium">У вас пока нет созданных лотов.</p>
+            <p className="text-slate-400 font-medium tracking-tight">В системе пока нет созданных лотов.</p>
           </div>
         )}
       </div>
