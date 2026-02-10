@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { tenders, bids } from '@/lib/schema';
+import { tenders, bids, organizations } from '@/lib/schema';
 import { eq, and } from 'drizzle-orm';
 import { auth } from "@/auth";
 import { 
@@ -43,7 +43,15 @@ export default async function TenderDetailsPage({
   });
 
   const isWinner = myBid && tender.winnerId === myBid.id;
-
+  const userOrg = await db.query.organizations.findFirst({
+    where: eq(organizations.userId, session.user.id!)
+  });
+  // Формируем объект данных поставщика из сессии
+  const vendorInfo = {
+    companyName: userOrg?.name || "ТОО 'Не указано'",
+    bin: userOrg?.bin || "БИН не заполнен",
+    representative: session.user.name || "ФИО не указано",
+  };
   return (
     <div className="max-w-5xl mx-auto p-8">
       <Link 
@@ -122,12 +130,16 @@ export default async function TenderDetailsPage({
         <div className="space-y-6">
           <div className="bg-slate-900 rounded-[40px] p-8 text-white shadow-xl shadow-slate-200">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Начальная цена</p>
-            <p className="text-4xl font-black mb-8 italic italic">
+            <p className="text-4xl font-black mb-8 italic">
               {Number(tender.price).toLocaleString()} ₸
             </p>
             
             {!myBid ? (
-              <BidModal tenderId={tender.id} tenderTitle={tender.title} />
+              <BidModal 
+                tenderId={tender.id} 
+                tenderTitle={tender.title} 
+                vendorData={vendorInfo} // Передаем данные организации сюда
+              />
             ) : (
               <div className="p-4 bg-white/10 rounded-2xl border border-white/10 text-center">
                 <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-1">Заявка подана</p>

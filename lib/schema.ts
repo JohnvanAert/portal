@@ -79,6 +79,8 @@ export const users = pgTable('users', {
   role: text('role').$type<'admin' | 'customer' | 'vendor'>().default('vendor'),
   iin: text('iin').unique(), // Оставим для будущей связки с ЭЦП
   createdAt: timestamp('created_at').defaultNow(),
+  bin: text('bin'), 
+  companyName: text('company_name'),
 });
 
 export const usersRelations = relations(users, ({ one, many }) => ({

@@ -110,61 +110,48 @@ export async function parseCertificateData(certificateBase64: string) {
  * Регистрация пользователя в БД
  * Исправлено: Транзакции заменены на последовательные запросы для Neon HTTP
  */
-export async function registerWithEDS(edsData: any, password: string) {
-  // Добавляем iin в деструктуризацию (он приходит из вашего парсера)
+export async function registerWithEDS(edsData: any, password: string, manualEmail?: string) {
   const { fio, email, bin, orgName, iin } = edsData;
-
+  const finalEmail = manualEmail || edsData.email;
   try {
-    // 1. Проверка на дубликат по Email ИЛИ по ИИН
     const existingUser = await db.query.users.findFirst({
-      where: iin 
-        ? or(eq(users.email, email), eq(users.iin, iin))
-        : eq(users.email, email),
+      where: iin ? eq(users.iin, iin) : eq(users.email, finalEmail),
     });
 
     if (existingUser) {
-      const field = existingUser.email === email ? "email" : "ИИН";
-      return { error: `Пользователь с таким ${field} уже существует` };
+      return { error: `Пользователь уже существует` };
     }
 
-    // 2. Подготовка данных
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = randomUUID();
 
-    // 3. Создаем пользователя (добавлено поле iin)
+    // 1. Создаем пользователя
     await db.insert(users).values({
       id: userId,
-      email: email,
-      iin: iin || null, // Сохраняем ИИН для последующих входов
+      email: finalEmail,
+      iin: iin || null,
       name: fio,
       password: hashedPassword,
       role: 'vendor',
     });
 
-    // 4. Создаем организацию
+    // 2. Создаем организацию (СВЯЗЫВАЕМ С ПОЛЬЗОВАТЕЛЕМ)
     await db.insert(organizations).values({
       name: orgName || `ИП ${fio}`,
       bin: bin || null,
       userId: userId, 
     });
 
-    // 5. Записываем аудит-лог
     await db.insert(auditLogs).values({
       userId: userId,
       action: "USER_REGISTERED",
-      details: {
-        fio,
-        iin, // Добавляем в логи для истории
-        bin,
-        orgName,
-        registeredAt: new Date().toISOString()
-      }
+      details: { fio, iin, bin, orgName }
     });
 
     return { success: true };
   } catch (error: any) {
     console.error("Registration Error:", error);
-    return { error: "Ошибка при сохранении в базу данных. Проверьте соединение." };
+    return { error: "Ошибка при сохранении в базу данных." };
   }
 }
 
@@ -172,32 +159,34 @@ export async function registerWithEDS(edsData: any, password: string) {
  * Авторизация через ЭЦП
  */
 export async function loginWithEDS(edsData: any) {
-  // Извлекаем данные, которые прислал фронтенд
   const { iin, email } = edsData;
 
   try {
-    // Ищем пользователя. Приоритет ИИН, так как email в ключе может быть неверным.
+    // Ищем пользователя с подтягиванием данных организации
     const user = await db.query.users.findFirst({
-      where: iin 
-        ? eq(users.iin, iin) 
-        : eq(users.email, email),
+      where: iin ? eq(users.iin, iin) : eq(users.email, email),
+      with: {
+        organization: true, // Это магическая строка Drizzle, которая делает JOIN
+      },
     });
 
-    // Если пользователь не найден (как в вашем логе с ИИН 851031399067)
     if (!user) {
       return { 
         error: `Пользователь с ИИН ${iin || email} не найден. Пройдите регистрацию.` 
       };
     }
 
-    // Возвращаем данные для сессии
+    // Возвращаем данные для сессии, "сплющивая" структуру для NextAuth
     return { 
       success: true, 
       user: { 
         id: user.id, 
         email: user.email, 
         name: user.name,
-        role: user.role 
+        role: user.role,
+        // Вытаскиваем данные из вложенного объекта организации
+        bin: user.organization?.bin || null,
+        companyName: user.organization?.name || null
       } 
     };
   } catch (error) {

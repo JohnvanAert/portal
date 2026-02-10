@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { tenders } from '@/lib/schema';
+import { tenders, organizations } from '@/lib/schema';
 import BidModal from '@/components/BidModal';
 import { eq, desc } from 'drizzle-orm';
 import { auth } from '@/auth'; 
@@ -14,6 +14,18 @@ export default async function VendorPage() {
   if (!session) {
     redirect('/login');
   }
+
+  // 1. Получаем данные об организации текущего юзера
+  const userOrg = await db.query.organizations.findFirst({
+    where: eq(organizations.userId, session.user.id!)
+  });
+
+  // 2. Подготавливаем объект, который требует BidModal
+  const vendorDataForModal = {
+    companyName: userOrg?.name || "Название не указано",
+    bin: userOrg?.bin || "БИН не указан",
+    representative: session.user.name || "ФИО не указано",
+  };
 
   // 3. Если мы здесь, значит юзер вошел
   const availableTenders = await db
@@ -44,7 +56,12 @@ export default async function VendorPage() {
 
               {/* Здесь уже не нужен тернарник для гостя, так как гость сюда не попадет */}
               {session.user.role === 'vendor' ? (
-                <BidModal tenderId={t.id} tenderTitle={t.title} />
+                // ПЕРЕДАЕМ vendorData В МОДАЛКУ
+                <BidModal 
+                  tenderId={t.id} 
+                  tenderTitle={t.title} 
+                  vendorData={vendorDataForModal} 
+                />
               ) : (
                 <div className="py-2 px-4 bg-slate-50 border border-slate-200 rounded-xl text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                   Режим просмотра (Заказчик)

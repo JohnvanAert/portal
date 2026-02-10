@@ -10,10 +10,20 @@ import { Eye, Tag, Calendar } from "lucide-react";
 export default async function VendorPage() {
   const session = await auth();
 
-  if (session?.user?.role === "admin") {
-    redirect("/dashboard");
+// 1. Если пользователь не залогинен — отправляем на вход
+  if (!session) {
+    redirect("/login");
   }
 
+  // 2. Если зашел Админ — на его дашборд
+  if (session.user?.role === "admin") {
+    redirect("/admin/dashboard");
+  }
+
+  // 3. Если зашел Заказчик — в его личный кабинет
+  if (session.user?.role === "customer") {
+    redirect("/customer/dashboard");
+  }
   const availableTenders = await db
     .select()
     .from(tenders)
@@ -42,7 +52,7 @@ export default async function VendorPage() {
           ) : (
             availableTenders.map((t) => (
               <Link 
-                href={`/vendor/tenders/${t.id}`}
+                href={`../tenders/${t.id}`}
                 key={t.id} 
                 className="group bg-white p-8 rounded-[32px] border border-slate-200 flex justify-between items-center shadow-sm hover:shadow-xl hover:border-blue-200 transition-all duration-300"
               >

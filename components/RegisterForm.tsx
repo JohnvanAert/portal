@@ -11,15 +11,16 @@ export default function RegisterForm() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [edsData, setEdsData] = useState<any>(null) 
+  const [manualEmail, setManualEmail] = useState('') 
   const router = useRouter()
-
   const [mode, setMode] = useState<'eds' | 'manual'>('eds')
+
   if (mode === 'manual') {
     return <RegisterRegularForm onSwitch={() => setMode('eds')} />
   }
-  // 1. Считываем реальные данные из ЭЦП
+
+  // 1. Считываем данные из ЭЦП через NCALayer
   async function handleEdsScan() {
-    console.log("🚀 Нажата кнопка сканирования ЭЦП");
     setLoading(true);
     setError(null);
 
@@ -29,59 +30,61 @@ export default function RegisterForm() {
       
       if (!signatureXml) throw new Error("Подпись не получена от NCALayer");
 
-      console.log("📝 Извлекаем сертификат из XML...");
-
-      /** * ИСПРАВЛЕНИЕ РЕГУЛЯРКИ:
-       * Используем [\s\S]*? вместо флага /s для совместимости с TS и старыми браузерами.
-       * .replace(/\s+/g, '') — критически важно для удаления переносов строк \r\n,
-       * которые NCALayer добавляет в XML и которые ломают парсинг на бэкенде.
-       */
       const certMatch = signatureXml.match(/<ds:X509Certificate>([\s\S]*?)<\/ds:X509Certificate>/);
       const certificateBase64 = certMatch ? certMatch[1].replace(/\s+/g, '') : null;
 
       if (!certificateBase64) {
-        console.error("❌ Тег <ds:X509Certificate> не найден в ответе");
-        throw new Error("Не удалось найти данные сертификата в подписи. Убедитесь, что используете верный ключ.");
+        throw new Error("Не удалось найти данные сертификата в подписи.");
       }
 
-      console.log("⚙️ Отправка очищенного сертификата на сервер...");
-      
-      // Отправляем чистый Base64 (без XML-тегов и пробелов)
       const result = await parseCertificateData(certificateBase64);
       
       if (result.error || !result.data) {
-        console.error("❌ Сервер не смог разобрать сертификат:", result.error);
         throw new Error(result.error || "Ошибка разбора данных сертификата");
       }
 
+      // Сохраняем данные из ключа
       setEdsData({
         fio: result.data.fio,
-        iin: result.data.iin, // <--- ОБЯЗАТЕЛЬНО ДОБАВЬТЕ ЭТУ СТРОКУ
+        iin: result.data.iin,
         bin: result.data.bin,
         orgName: result.data.orgName,
         email: result.data.email,
       });
-      
-      console.log("🎉 Данные получены:", result.data.fio);
+
+      // Автоматически подставляем email, если он нашелся в ключе
+      if (result.data.email) {
+        setManualEmail(result.data.email);
+      }
 
     } catch (err: any) {
-      console.error("🚨 ОШИБКА:", err);
       setError(err.message || "Не удалось считать данные ЭЦП");
     } finally {
       setLoading(false);
     }
   }
 
-  // 2. Отправляем форму в базу данных
+  // 2. Сабмит формы регистрации
   async function onSubmit(formData: FormData) {
     setLoading(true)
     setError(null)
 
     const password = formData.get('password') as string
     
+    // Валидация почты перед отправкой
+    if (!manualEmail || !manualEmail.includes('@')) {
+      setError("Введите корректный адрес электронной почты");
+      setLoading(false);
+      return;
+    }
+    
     try {
-      // Роль по умолчанию 'vendor'
-      const result = await registerWithEDS({ ...edsData, role: 'vendor' }, password)
+      // ПЕРЕДАЕМ: данные из ЭЦП, пароль и ВВЕДЕННУЮ ПОЧТУ
+      const result = await registerWithEDS(
+        { ...edsData, role: 'vendor' }, 
+        password, 
+        manualEmail
+      )
 
       if (result?.error) {
         setError(result.error)
@@ -99,7 +102,7 @@ export default function RegisterForm() {
     <div className="max-w-md w-full bg-white rounded-[32px] p-10 shadow-xl shadow-slate-200/60 border border-slate-100 animate-in fade-in zoom-in duration-300">
       <div className="mb-8">
         <h1 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">Создать аккаунт</h1>
-        <p className="text-slate-500 font-medium">Регистрация через ЭЦП Ключ</p>
+        <p className="text-slate-500 font-medium text-sm">Регистрация через ЭЦП Ключ</p>
       </div>
 
       {error && (
@@ -119,20 +122,32 @@ export default function RegisterForm() {
             {loading ? 'Обработка данных...' : 'Выбрать сертификат'}
           </button>
           <p className="text-[11px] text-center text-slate-400 px-4">
-            Нажмите кнопку и выберите ключ <b>AUTH_RSA</b> или <b>GOST</b> в NCALayer
+            Нажмите кнопку и выберите ключ <b>AUTH_RSA</b> или <b>GOST</b>
           </p>
         </div>
       ) : (
         <form action={onSubmit} className="space-y-5 animate-in fade-in slide-in-from-bottom-2">
           <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
             <p className="text-[10px] font-black uppercase text-blue-600 mb-1">Данные подтверждены:</p>
-            <p className="text-sm font-bold text-slate-900">{edsData.fio}</p>
-            <p className="text-xs text-slate-500">{edsData.orgName}</p>
-            {edsData.bin && <p className="text-[10px] text-slate-400 mt-1 font-mono">БИН: {edsData.bin}</p>}
+            <p className="text-sm font-bold text-slate-900 leading-tight">{edsData.fio}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{edsData.orgName || 'Физическое лицо'}</p>
+          </div>
+
+          {/* ПОЛЕ ВВОДА ПОЧТЫ */}
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Электронная почта</label>
+            <input 
+              type="email" 
+              required 
+              value={manualEmail}
+              onChange={(e) => setManualEmail(e.target.value)}
+              placeholder="example@mail.kz"
+              className="w-full border border-slate-200 p-4 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all" 
+            />
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Придумайте пароль для входа</label>
+            <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Придумайте пароль</label>
             <input 
               name="password" 
               type="password" 
@@ -140,12 +155,6 @@ export default function RegisterForm() {
               placeholder="••••••••" 
               className="w-full border border-slate-200 p-4 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all placeholder:text-slate-300" 
             />
-          </div>
-
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Вы регистрируетесь как <b>Поставщик</b>. Статус будет проверен администратором.
-            </p>
           </div>
 
           <button 
@@ -158,22 +167,20 @@ export default function RegisterForm() {
         </form>
       )}
 
-      <div className="mt-8 pt-6 border-t border-slate-50 text-center">
+      <div className="mt-8 pt-6 border-t border-slate-50 text-center space-y-4">
         <p className="text-slate-500 font-medium text-sm">
           Уже есть аккаунт?{' '}
           <Link href="/login" className="text-blue-600 font-bold hover:text-blue-700 transition-colors">
             Войти
           </Link>
         </p>
-        <div className="text-center">
-              <button 
-                onClick={() => setMode('manual')} // Переключаем на ручной ввод
-                type="button"
-                className="text-[10px] text-slate-300 hover:text-blue-400 transition-colors uppercase font-bold tracking-tighter"
-              >
-                Проблемы с ЭЦП? Ввести данные вручную
-              </button>
-            </div>
+        <button 
+          onClick={() => setMode('manual')}
+          type="button"
+          className="text-[10px] text-slate-300 hover:text-blue-400 transition-colors uppercase font-bold tracking-widest"
+        >
+          Проблемы с ЭЦП? Ввести вручную
+        </button>
       </div>
     </div>
   )

@@ -2,8 +2,15 @@ import { db } from "@/lib/db";
 import { users, organizations } from "@/lib/schema";
 import { eq, desc } from "drizzle-orm";
 import { Building2, Mail, User, Hash } from "lucide-react";
+import { auth } from "@/auth"; // Добавь это
+import { redirect } from "next/navigation";
 
 export default async function VendorsPage() {
+  const session = await auth();
+
+  if (!session || session.user.role !== 'customer') {
+    redirect('/login');
+  }
   // Получаем всех пользователей с ролью 'vendor' и их организации
   const allVendors = await db
     .select({
