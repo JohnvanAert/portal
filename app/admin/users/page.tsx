@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
-import { updateUserRole } from "@/app/actions/admin";
+import { updateUserRole, toggleUserBlock } from "@/app/actions/admin"; // Импортируем оба экшена
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { Lock, Unlock } from "lucide-react";
 
 export default async function AdminPage() {
   const session = await auth();
@@ -14,7 +15,6 @@ export default async function AdminPage() {
 
   const allUsers = await db.query.users.findMany({
     with: {
-      // если есть связь с организациями, можно подтянуть название компании
       organization: true 
     }
   });
@@ -35,14 +35,19 @@ export default async function AdminPage() {
               <th className="p-6 text-xs font-black uppercase text-slate-400">Сотрудник / Организация</th>
               <th className="p-6 text-xs font-black uppercase text-slate-400">Email</th>
               <th className="p-6 text-xs font-black uppercase text-slate-400">Текущая роль</th>
-              <th className="p-6 text-xs font-black uppercase text-slate-400">Действие</th>
+              <th className="p-6 text-xs font-black uppercase text-slate-400 text-center">Действие</th>
             </tr>
           </thead>
           <tbody>
             {allUsers.map((user: any) => (
-              <tr key={user.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/30 transition-colors">
+              <tr key={user.id} className={`border-b border-slate-50 last:border-0 hover:bg-slate-50/30 transition-colors ${user.isBlocked ? 'bg-red-50/30' : ''}`}>
                 <td className="p-6">
-                  <div className="font-bold text-slate-900">{user.name}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="font-bold text-slate-900">{user.name}</div>
+                    {user.isBlocked && (
+                      <span className="bg-red-500 text-white text-[8px] px-1.5 py-0.5 rounded uppercase font-black">Blocked</span>
+                    )}
+                  </div>
                   <div className="text-xs text-slate-400">{user.organization?.name || "Личный аккаунт"}</div>
                 </td>
                 <td className="p-6 text-sm text-slate-600 font-medium">{user.email}</td>
@@ -57,15 +62,35 @@ export default async function AdminPage() {
                   </span>
                 </td>
                 <td className="p-6">
-                  <form action={async () => {
-                    'use server'
-                    const nextRole = user.role === 'vendor' ? 'customer' : 'vendor';
-                    await updateUserRole(user.id, nextRole);
-                  }}>
-                    <button className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors">
-                      Назначить {user.role === 'vendor' ? 'Заказчиком' : 'Поставщиком'}
-                    </button>
-                  </form>
+                  <div className="flex items-center justify-center gap-4">
+                    {/* Смена роли */}
+                    <form action={async () => {
+                      'use server'
+                      const nextRole = user.role === 'vendor' ? 'customer' : 'vendor';
+                      await updateUserRole(user.id, nextRole);
+                    }}>
+                      <button className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors">
+                        Назначить {user.role === 'vendor' ? 'Заказчиком' : 'Поставщиком'}
+                      </button>
+                    </form>
+
+                    {/* Блокировка профиля */}
+                    <form action={async () => {
+                      'use server'
+                      await toggleUserBlock(user.id, !!user.isBlocked);
+                    }}>
+                      <button 
+                        title={user.isBlocked ? "Разблокировать" : "Заблокировать"}
+                        className={`p-2 rounded-xl transition-all ${
+                          user.isBlocked 
+                            ? "bg-red-100 text-red-600 hover:bg-red-200" 
+                            : "bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                        }`}
+                      >
+                        {user.isBlocked ? <Lock size={18} /> : <Unlock size={18} />}
+                      </button>
+                    </form>
+                  </div>
                 </td>
               </tr>
             ))}

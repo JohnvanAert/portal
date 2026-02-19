@@ -77,6 +77,7 @@ export const users = pgTable('users', {
   password: text('password').notNull(), // Хэшированный пароль
   name: text('name').notNull(),
   role: text('role').$type<'admin' | 'customer' | 'vendor'>().default('vendor'),
+  isBlocked: boolean("is_blocked").default(false),
   iin: text('iin').unique(), // Оставим для будущей связки с ЭЦП
   createdAt: timestamp('created_at').defaultNow(),
   bin: text('bin'), 

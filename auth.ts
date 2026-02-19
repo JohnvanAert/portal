@@ -2,10 +2,11 @@
 import NextAuth from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import { db } from "@/lib/db"
-import { users } from "@/lib/schema"
+import { users, auditLogs } from "@/lib/schema"
 import { eq } from "drizzle-orm"
 import bcrypt from "bcryptjs"
 import { loginWithEDS } from "@/app/actions/auth" 
+import { headers } from "next/headers"
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   pages: {
@@ -20,68 +21,77 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         isEds: { type: "text" }
       },
       async authorize(credentials) {
+        // В новых версиях Next.js headers() возвращает Promise
+        const headerList = await headers();
+        const ip = headerList.get("x-forwarded-for")?.split(',')[0] || "unknown";
+        
         const creds = credentials as Record<string, string | undefined>;
 
         // --- ЛОГИКА ЭЦП ---
         if (creds?.isEds === "true") {
-          console.log("🔐 Вход через ЭЦП, ИИН:", creds.iin);
-          
-          const result = await loginWithEDS({ 
-            iin: creds.iin 
-          });
+          const result = await loginWithEDS({ iin: creds.iin });
 
           if (result.success && result.user) {
-            console.log("✅ Пользователь найден по ИИН");
+            // ПРОВЕРКА БЛОКИРОВКИ (ЭЦП)
+            if ((result.user as any).isBlocked) {
+              await db.insert(auditLogs).values({
+                userId: result.user.id,
+                action: "LOGIN_ATTEMPT_BLOCKED",
+                details: { ip, method: "EDS", reason: "Account blocked" }
+              });
+              return null; 
+            }
+
             return { 
               id: result.user.id, 
               name: result.user.name, 
               email: result.user.email, 
               role: result.user.role,
-              // Добавляем поля организации из результата поиска по ЭЦП
               bin: (result.user as any).bin,
               companyName: (result.user as any).companyName
             } as any;
           }
-          
-          console.error("❌ Ошибка входа по ЭЦП:", result?.error);
           return null; 
         }
 
         // --- ЛОГИКА EMAIL/PASSWORD ---
-        console.log("📧 Обычный вход по Email:", creds?.email);
-
         if (!creds?.email || !creds?.password) return null;
         
         const user = await db.query.users.findFirst({
           where: eq(users.email, creds.email),
-          with: {
-            organization: true, // Тянем данные из связанной таблицы organizations
-          },
+          with: { organization: true },
         });
 
-        if (!user || !user.password) {
-          console.log("Пользователь не найден или пароль не установлен");
-          return null;
+        if (!user || !user.password) return null;
+
+        // ПРОВЕРКА БЛОКИРОВКИ (EMAIL)
+        if (user.isBlocked) {
+          await db.insert(auditLogs).values({
+            userId: user.id,
+            action: "LOGIN_ATTEMPT_BLOCKED",
+            details: { ip, method: "Credentials", email: creds.email }
+          });
+          return null; 
         }
 
-        const isPasswordValid = await bcrypt.compare(
-          creds.password,
-          user.password
-        );
+        const isPasswordValid = await bcrypt.compare(creds.password, user.password);
 
         if (!isPasswordValid) {
-          console.log("Неверный пароль");
+          await db.insert(auditLogs).values({
+            userId: user.id,
+            action: "LOGIN_FAILED",
+            details: { ip, reason: "Invalid password" }
+          });
           return null;
         }
 
-        // Возвращаем полные данные пользователя для JWT сессии
         return { 
           id: user.id, 
           name: user.name, 
           email: user.email, 
           role: user.role || "vendor",
           bin: user.organization?.bin || null,
-          companyName: user.organization?.name || null // Добавлено: тянем из БД
+          companyName: user.organization?.name || null
         } as any;
       },
     }),
@@ -89,6 +99,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
+      const userId = (auth?.user as any)?.id;
+
+      // Динамическая проверка блокировки активной сессии
+      if (isLoggedIn && userId) {
+        const userStatus = await db.query.users.findFirst({
+          where: eq(users.id, userId),
+          columns: { isBlocked: true }
+        });
+
+        if (userStatus?.isBlocked) {
+          return false; 
+        }
+      }
+
       const role = (auth?.user as any)?.role;
 
       if (isLoggedIn && nextUrl.pathname === '/') {
@@ -97,7 +121,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return Response.redirect(new URL('/vendor', nextUrl));
       }
 
-      if (!isLoggedIn && (nextUrl.pathname.startsWith('/vendor') || nextUrl.pathname.startsWith('/dashboard'))) {
+      const isProtectedPath = 
+        nextUrl.pathname.startsWith('/vendor') || 
+        nextUrl.pathname.startsWith('/customer') || 
+        nextUrl.pathname.startsWith('/admin') ||
+        nextUrl.pathname.startsWith('/dashboard');
+
+      if (!isLoggedIn && isProtectedPath) {
         return false;
       }
 
@@ -105,13 +135,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
 
     async jwt({ token, user, trigger, session }) {
-      // При первом входе записываем всё в токен
       if (user) {
         token.role = (user as any).role;
         token.id = user.id;
         token.name = user.name;
-        token.bin = (user as any).bin;           // Сохраняем BIN в токене
-        token.companyName = (user as any).companyName; // Сохраняем название в токене
+        token.bin = (user as any).bin;
+        token.companyName = (user as any).companyName;
       }
       if (trigger === "update" && session?.user?.name) {
         token.name = session.user.name;
@@ -120,15 +149,25 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
 
     async session({ session, token }) {
-      // Передаем данные из токена в объект сессии, доступный на фронтенде
       if (session.user) {
         (session.user as any).id = token.id;
         (session.user as any).role = token.role;
-        // Теперь в сессии будет вложенный объект
-        (session.user as any).organization = token.organization;
+        (session.user as any).bin = token.bin;
+        (session.user as any).companyName = token.companyName;
       }
       return session;
     },
   },
   session: { strategy: "jwt" },
+  logger: {
+    error(error) {
+      // ИСПРАВЛЕНИЕ ОШИБКИ ts(2367): Приводим к строке для сравнения
+      const errorCode = (error as any).code || (error as any).message || String(error);
+      
+      if (errorCode === "CredentialsSignin" || errorCode.includes("CredentialsSignin")) {
+        return;
+      }
+      console.error(error);
+    },
+  },
 })

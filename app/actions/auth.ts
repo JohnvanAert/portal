@@ -175,7 +175,13 @@ export async function loginWithEDS(edsData: any) {
         error: `Пользователь с ИИН ${iin || email} не найден. Пройдите регистрацию.` 
       };
     }
-
+    // --- ДОБАВЛЯЕМ ЛОГ ЗДЕСЬ ---
+    await db.insert(auditLogs).values({
+      userId: user.id,
+      action: "USER_LOGIN_EDS",
+      details: { iin: user.iin, method: "ЭЦП" }
+    });
+    // --------------------------
     // Возвращаем данные для сессии, "сплющивая" структуру для NextAuth
     return { 
       success: true, 
@@ -216,16 +222,24 @@ export async function registerRegular(formData: FormData) {
 
     // 2. Хэшируем пароль
     const hashedPassword = await bcrypt.hash(password, 10);
-
+    const newUserId = crypto.randomUUID();
     // 3. Создаем пользователя (по умолчанию роль vendor)
     await db.insert(users).values({
-      id: crypto.randomUUID(),
+      id: newUserId,
       name,
       email,
       password: hashedPassword,
       role: 'vendor', // По умолчанию регистрируем как поставщика
     });
+    // --- ДОБАВЛЯЕМ ЛОГ ЗДЕСЬ ---
+    await db.insert(auditLogs).values({
+      userId: newUserId,
+      action: "USER_REGISTERED",
+      details: { fio: name, email: email, method: "REGULAR" }
+    });
+    // --------------------------
 
+    
     return { success: true };
   } catch (error: any) {
     console.error("Registration error:", error);

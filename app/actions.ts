@@ -1,15 +1,20 @@
 'use server'
 
 import { db } from '@/lib/db';
-import { tenders, bids } from '@/lib/schema';
+import { tenders, bids, auditLogs, users } from '@/lib/schema';
 import { revalidatePath } from 'next/cache';
 import { auth } from "@/auth";
 import { put } from '@vercel/blob';
-
+import { eq } from 'drizzle-orm';
 /**
  * Создание нового тендера
  */
 export async function createTender(formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    throw new Error("Вы должны быть авторизованы для создания тендера");
+  }
+
   // 1. Текстовые данные
   const title = formData.get('title') as string;
   const price = formData.get('price') as string;
@@ -20,7 +25,7 @@ export async function createTender(formData: FormData) {
   const requirementsRaw = formData.get('requirements') as string;
   const requirements = requirementsRaw ? JSON.parse(requirementsRaw) : [];
 
-  // 2. Файлы из FormData (должны совпадать с именами в модалке)
+  // 2. Файлы из FormData
   const smetaFile = formData.get('smetaFile') as File;
   const volumeFile = formData.get('volumeFile') as File;
 
@@ -48,10 +53,9 @@ export async function createTender(formData: FormData) {
       volumeName = volumeFile.name;
     }
 
-    // 5. Сохранение в БД
-    // ВНИМАНИЕ: Убедись, что в схеме есть поля volumeUrl и volumeName. 
-    // Если их нет, пока сохрани в attachmentUrl (смету), а объемы добавь позже.
-    await db.insert(tenders).values({ 
+    // 5. Сохранение в БД с получением ID
+    // Мы добавляем .returning(), чтобы получить ID созданного тендера для логов
+    const result = await db.insert(tenders).values({ 
       title, 
       price, 
       category,      
@@ -60,13 +64,30 @@ export async function createTender(formData: FormData) {
       requirements, 
       attachmentUrl,   
       attachmentName,
-      volumeUrl,   // Раскомментируй, когда добавишь в схему
-      volumeName,  // Раскомментируй, когда добавишь в схему
+      volumeUrl,   
+      volumeName,  
       status: "Активен" 
+    }).returning({ insertedId: tenders.id });
+
+    // Извлекаем ID из результата (Drizzle возвращает массив)
+    const tenderId = result[0].insertedId;
+
+    // 6. ЗАПИСЬ В ЖУРНАЛ АКТИВНОСТИ (Audit Log)
+    await db.insert(auditLogs).values({
+      userId: session.user.id,
+      action: "TENDER_CREATED",
+      targetId: tenderId.toString(), // Теперь переменная tenderId определена
+      details: { 
+        title: title, 
+        price: price,
+        category: category 
+      }
     });
     
+    // Перезагружаем пути, чтобы данные обновились везде
     revalidatePath('/customer/dashboard');
     revalidatePath('/vendor/dashboard');
+    revalidatePath('/admin/logs'); // Добавили, чтобы админ сразу видел лог
     revalidatePath('/');
     
     return { success: true };
@@ -92,20 +113,73 @@ export async function createBid(formData: FormData) {
   const message = formData.get('message') as string;
 
   try {
-    await db.insert(bids).values({
+    // 1. Сохраняем отклик в базу
+    // Используем .returning(), чтобы получить ID созданной заявки (опционально, но полезно для логов)
+    const result = await db.insert(bids).values({
       tenderId,
       userId: session.user.id,
       vendorName,
       offerPrice,
       message,
+    }).returning({ bidId: bids.id });
+
+    const newBidId = result[0].bidId;
+
+    // 2. ЗАПИСЬ В ЖУРНАЛ АКТИВНОСТИ (Audit Log)
+    await db.insert(auditLogs).values({
+      userId: session.user.id,
+      action: "BID_PLACED",
+      targetId: tenderId.toString(), // Ссылаемся на ID тендера, чтобы админ мог сразу понять, куда упала заявка
+      details: { 
+        vendor: vendorName, 
+        amount: offerPrice,
+        bidId: newBidId,
+        message: message?.substring(0, 50) + "..." // Сохраняем начало сообщения для превью
+      }
     });
 
+    // Обновляем кэш страниц
     revalidatePath('/');
     revalidatePath(`/customer/dashboard/tenders/${tenderId}`);
+    revalidatePath('/admin/logs'); // Чтобы админ увидел новый лог
     
     return { success: true };
   } catch (error) {
     console.error("Error creating bid:", error);
     return { error: "Не удалось отправить отклик" };
+  }
+}
+
+export async function toggleUserBlock(userId: string, currentStatus: boolean) {
+  const session = await auth();
+  
+  // Проверка на админа (чтобы обычный пользователь не мог блокировать других)
+  if (session?.user?.role !== 'admin') throw new Error("Forbidden");
+
+  try {
+    // 1. Обновляем статус в БД
+    await db.update(users)
+      .set({ isBlocked: !currentStatus })
+      .where(eq(users.id, userId));
+
+    // 2. Логируем действие в журнале активности
+    await db.insert(auditLogs).values({
+      userId: session.user.id,
+      action: !currentStatus ? "USER_BLOCKED" : "USER_UNBLOCKED",
+      targetId: userId,
+      details: { 
+        timestamp: new Date().toISOString(),
+        status: !currentStatus ? "blocked" : "unblocked"
+      }
+    });
+
+    // Очищаем кэш страницы пользователей, чтобы изменения сразу отобразились
+    revalidatePath('/admin/users');
+    revalidatePath('/admin/logs');
+    
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при смене статуса блокировки:", error);
+    return { error: "Ошибка при смене статуса" };
   }
 }

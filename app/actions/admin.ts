@@ -76,3 +76,38 @@ export async function getRegistrationStats() {
 
   return stats.rows as { date: string, count: number }[];
 }
+
+
+export async function toggleUserBlock(userId: string, currentStatus: boolean) {
+  const session = await auth();
+  
+  // Проверка на админа (чтобы обычный пользователь не мог блокировать других)
+  if (session?.user?.role !== 'admin') throw new Error("Forbidden");
+
+  try {
+    // 1. Обновляем статус в БД
+    await db.update(users)
+      .set({ isBlocked: !currentStatus })
+      .where(eq(users.id, userId));
+
+    // 2. Логируем действие в журнале активности
+    await db.insert(auditLogs).values({
+      userId: session.user.id,
+      action: !currentStatus ? "USER_BLOCKED" : "USER_UNBLOCKED",
+      targetId: userId,
+      details: { 
+        timestamp: new Date().toISOString(),
+        status: !currentStatus ? "blocked" : "unblocked"
+      }
+    });
+
+    // Очищаем кэш страницы пользователей, чтобы изменения сразу отобразились
+    revalidatePath('/admin/users');
+    revalidatePath('/admin/logs');
+    
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при смене статуса блокировки:", error);
+    return { error: "Ошибка при смене статуса" };
+  }
+}
