@@ -3,29 +3,58 @@
 import { db } from '@/lib/db';
 import { tenders } from '@/lib/schema';
 import CreateTenderModal from '@/components/CreateTenderModal';
-import { desc, sql } from 'drizzle-orm'; // Добавь sql для подсчета
+import { desc, sql, ilike, or, and, eq } from 'drizzle-orm';
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import Link from 'next/link'; 
-import { ChevronRight, MessageSquare, Paperclip, LayoutGrid, ChevronLeft } from 'lucide-react';
+import { ChevronRight, MessageSquare, Paperclip, LayoutGrid, ChevronLeft, Search } from 'lucide-react';
 
-// Добавляем типизацию для searchParams
-export default async function AdminDashboard({
+export default async function CustomerDashboard({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ 
+    page?: string; 
+    query?: string; 
+    category?: string; 
+    status?: string 
+  }>;
 }) {
   const session = await auth();
   if (session?.user?.role !== "customer") redirect("/login");
 
-  // 1. Настройка пагинации
-  const { page: pageParam } = await searchParams;
-  const currentPage = Number(pageParam) || 1;
-  const ITEMS_PER_PAGE = 5; // Для теста поставь 5, потом можно 10
+  // 1. Разворачиваем параметры поиска
+  const sp = await searchParams;
+  const currentPage = Number(sp.page) || 1;
+  const query = sp.query || "";
+  const categoryFilter = sp.category || "";
+  const statusFilter = sp.status || "";
+
+  const ITEMS_PER_PAGE = 5;
   const offset = (currentPage - 1) * ITEMS_PER_PAGE;
 
-  // 2. Получаем данные с лимитом и оффсетом
+  // 2. Формируем фильтры для БД
+  const filters = [];
+  
+  // Поиск по названию
+  if (query) {
+    filters.push(ilike(tenders.title, `%${query}%`));
+  }
+  
+  // Фильтр по категории
+  if (categoryFilter) {
+    filters.push(eq(tenders.category, categoryFilter));
+  }
+
+  // Фильтр по статусу
+  if (statusFilter) {
+    filters.push(eq(tenders.status, statusFilter));
+  }
+
+  const whereCondition = filters.length > 0 ? and(...filters) : undefined;
+
+  // 3. Получаем данные с учетом фильтров
   const myTenders = await db.query.tenders.findMany({
+    where: whereCondition,
     orderBy: [desc(tenders.createdAt)],
     limit: ITEMS_PER_PAGE,
     offset: offset,
@@ -34,8 +63,13 @@ export default async function AdminDashboard({
     },
   });
 
-  // 3. Считаем общее количество тендеров
-  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(tenders);
+  // 4. Считаем общее количество с учетом тех же фильтров
+  const [totalResult] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(tenders)
+    .where(whereCondition);
+    
+  const count = totalResult.count;
   const totalPages = Math.ceil(count / ITEMS_PER_PAGE);
 
   return (
@@ -43,19 +77,72 @@ export default async function AdminDashboard({
       <div className="flex justify-between items-end mb-10">
         <div>
           <h1 className="text-4xl font-black text-slate-900 tracking-tight">Панель Заказчика</h1>
-          <p className="text-slate-500 font-medium mt-1">Управление вашими закупками и лотами</p>
+          <p className="text-slate-500 font-medium mt-1">Управление закупками ({count})</p>
         </div>
         <CreateTenderModal />
       </div>
 
+      {/* ПАНЕЛЬ ПОИСКА И ФИЛЬТРОВ */}
+      <div className="mb-6 flex flex-wrap gap-4 items-center bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
+        <form className="flex-1 flex gap-4 items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              name="query"
+              defaultValue={query}
+              placeholder="Поиск по названию тендера..."
+              className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+
+          <select 
+            name="category" 
+            defaultValue={categoryFilter}
+            className="bg-slate-50 border-none rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Все категории</option>
+            <option value="СТРОИТЕЛЬСТВО • СМР">Строительство</option>
+            <option value="УСЛУГИ">Услуги</option>
+            <option value="ТОВАРЫ">Товары</option>
+          </select>
+
+          <select 
+            name="status" 
+            defaultValue={statusFilter}
+            className="bg-slate-50 border-none rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Все статусы</option>
+            <option value="Активен">Активен</option>
+            <option value="Черновик">Черновик</option>
+            <option value="Завершен">Завершен</option>
+          </select>
+
+          <button type="submit" className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-sm font-bold hover:bg-slate-800 transition-all">
+            Найти
+          </button>
+          
+          {(query || categoryFilter || statusFilter) && (
+            <Link href="/customer/dashboard" className="text-sm font-bold text-slate-400 hover:text-slate-600 px-2">
+              Сброс
+            </Link>
+          )}
+        </form>
+      </div>
+
       <div className="bg-white border border-slate-100 rounded-[32px] overflow-hidden shadow-sm">
-        {/* Твоя существующая таблица без изменений ... */}
         <table className="w-full text-left border-collapse">
-            {/* ... содержимое thead и tbody как в твоем коде ... */}
+            <thead>
+              <tr className="bg-slate-50/50 border-b border-slate-100">
+                <th className="p-6 text-[10px] font-black uppercase text-slate-400 tracking-widest">Тендер</th>
+                <th className="p-6 text-[10px] font-black uppercase text-slate-400 tracking-widest">Бюджет</th>
+                <th className="p-6 text-[10px] font-black uppercase text-slate-400 tracking-widest">Статус</th>
+                <th className="p-6 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Отклики</th>
+                <th className="p-6"></th>
+              </tr>
+            </thead>
             <tbody>
               {myTenders.map((t) => (
                 <tr key={t.id} className="group border-b border-slate-50 hover:bg-slate-50/50 transition-all">
-                  {/* ... ячейки td как в твоем коде ... */}
                    <td className="p-6">
                     <Link href={`/customer/dashboard/tenders/${t.id}`} className="block">
                       <div className="flex items-center gap-2 mb-1">
@@ -104,7 +191,7 @@ export default async function AdminDashboard({
             </tbody>
         </table>
 
-        {/* ШАБЛОН ПАГИНАЦИИ ВНИЗУ ТАБЛИЦЫ */}
+        {/* ПАГИНАЦИЯ (учитывает фильтры через ...sp) */}
         {totalPages > 1 && (
           <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
@@ -113,7 +200,7 @@ export default async function AdminDashboard({
             
             <div className="flex gap-2">
               <Link
-                href={`?page=${currentPage - 1}`}
+                href={{ query: { ...sp, page: Math.max(1, currentPage - 1) } }}
                 className={`p-2 rounded-xl border transition-all ${
                   currentPage <= 1 
                     ? 'pointer-events-none opacity-30 bg-transparent' 
@@ -124,7 +211,7 @@ export default async function AdminDashboard({
               </Link>
 
               <Link
-                href={`?page=${currentPage + 1}`}
+                href={{ query: { ...sp, page: Math.min(totalPages, currentPage + 1) } }}
                 className={`p-2 rounded-xl border transition-all ${
                   currentPage >= totalPages 
                     ? 'pointer-events-none opacity-30 bg-transparent' 
@@ -140,7 +227,10 @@ export default async function AdminDashboard({
         {myTenders.length === 0 && (
           <div className="p-24 text-center">
              <MessageSquare size={32} className="mx-auto text-slate-200 mb-6" />
-             <p className="text-slate-500 font-bold">Пусто</p>
+             <p className="text-slate-500 font-bold">Ничего не найдено</p>
+             {(query || categoryFilter || statusFilter) && (
+               <p className="text-slate-400 text-sm mt-2">Попробуйте изменить параметры поиска</p>
+             )}
           </div>
         )}
       </div>

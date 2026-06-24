@@ -45,6 +45,7 @@ export const bids = pgTable('bids', {
   vendorName: text('vendor_name').notNull(),
   offerPrice: text('offer_price').notNull(),
   message: text('message'),
+  documents: jsonb("documents").default([]),
   isRead: boolean('is_read').default(false),
   isWinnerRead: boolean('is_winner_read').default(false),
   createdAt: timestamp('created_at').defaultNow(),

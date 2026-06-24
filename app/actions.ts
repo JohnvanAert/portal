@@ -111,75 +111,57 @@ export async function createBid(formData: FormData) {
   const vendorName = formData.get('vendorName') as string;
   const offerPrice = formData.get('offerPrice') as string;
   const message = formData.get('message') as string;
+  
+  // Получаем файлы
+  const files = formData.getAll('documents') as File[];
 
   try {
-    // 1. Сохраняем отклик в базу
-    // Используем .returning(), чтобы получить ID созданной заявки (опционально, но полезно для логов)
+    const uploadedUrls: string[] = [];
+
+    // --- ЛОГИКА VERCEL BLOB ---
+    for (const file of files) {
+      if (file.size === 0) continue;
+
+      // Загружаем файл напрямую в Vercel Storage
+      const blob = await put(`bids/${Date.now()}-${file.name}`, file, {
+        access: 'public', // Файлы будут доступны по прямой ссылке
+      });
+
+      uploadedUrls.push(blob.url); // Сохраняем полученную ссылку
+    }
+
+    // 1. Сохраняем отклик в базу данных
     const result = await db.insert(bids).values({
       tenderId,
       userId: session.user.id,
       vendorName,
       offerPrice,
       message,
+      // Сохраняем массив ссылок из Vercel Blob
+      documents: uploadedUrls, 
     }).returning({ bidId: bids.id });
 
     const newBidId = result[0].bidId;
 
-    // 2. ЗАПИСЬ В ЖУРНАЛ АКТИВНОСТИ (Audit Log)
+    // 2. ЖУРНАЛ АКТИВНОСТИ
     await db.insert(auditLogs).values({
       userId: session.user.id,
       action: "BID_PLACED",
-      targetId: tenderId.toString(), // Ссылаемся на ID тендера, чтобы админ мог сразу понять, куда упала заявка
+      targetId: tenderId.toString(),
       details: { 
         vendor: vendorName, 
         amount: offerPrice,
-        bidId: newBidId,
-        message: message?.substring(0, 50) + "..." // Сохраняем начало сообщения для превью
+        filesCount: uploadedUrls.length,
+        bidId: newBidId
       }
     });
 
-    // Обновляем кэш страниц
-    revalidatePath('/');
     revalidatePath(`/customer/dashboard/tenders/${tenderId}`);
-    revalidatePath('/admin/logs'); // Чтобы админ увидел новый лог
+    revalidatePath(`/tenders/${tenderId}`);
     
     return { success: true };
   } catch (error) {
-    console.error("Error creating bid:", error);
-    return { error: "Не удалось отправить отклик" };
-  }
-}
-
-export async function toggleUserBlock(userId: string, currentStatus: boolean) {
-  const session = await auth();
-  
-  // Проверка на админа (чтобы обычный пользователь не мог блокировать других)
-  if (session?.user?.role !== 'admin') throw new Error("Forbidden");
-
-  try {
-    // 1. Обновляем статус в БД
-    await db.update(users)
-      .set({ isBlocked: !currentStatus })
-      .where(eq(users.id, userId));
-
-    // 2. Логируем действие в журнале активности
-    await db.insert(auditLogs).values({
-      userId: session.user.id,
-      action: !currentStatus ? "USER_BLOCKED" : "USER_UNBLOCKED",
-      targetId: userId,
-      details: { 
-        timestamp: new Date().toISOString(),
-        status: !currentStatus ? "blocked" : "unblocked"
-      }
-    });
-
-    // Очищаем кэш страницы пользователей, чтобы изменения сразу отобразились
-    revalidatePath('/admin/users');
-    revalidatePath('/admin/logs');
-    
-    return { success: true };
-  } catch (error) {
-    console.error("Ошибка при смене статуса блокировки:", error);
-    return { error: "Ошибка при смене статуса" };
+    console.error("Vercel Blob Upload Error:", error);
+    return { error: "Ошибка при загрузке документов в облако" };
   }
 }

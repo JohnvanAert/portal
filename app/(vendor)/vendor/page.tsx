@@ -1,17 +1,22 @@
-// app/page.tsx
+// app/(vendor)/vendor/page.tsx
 
 import { db } from '@/lib/db';
 import { tenders } from '@/lib/schema';
-import { eq, desc, sql } from 'drizzle-orm'; // Добавлен sql
+import { eq, desc, sql, and, ilike, ne } from 'drizzle-orm'; // Добавлен ne (not equal)
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Eye, Tag, Calendar, ChevronLeft, ChevronRight } from "lucide-react"; // Добавлены иконки
+import { Eye, Tag, Calendar, ChevronLeft, ChevronRight, Search, CheckCircle2, Clock } from "lucide-react";
 
 export default async function VendorPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ 
+    page?: string;
+    query?: string;
+    category?: string;
+    tab?: string; // Добавляем параметр таба
+  }>;
 }) {
   const session = await auth();
 
@@ -19,81 +24,166 @@ export default async function VendorPage({
   if (session.user?.role === "admin") redirect("/admin/dashboard");
   if (session.user?.role === "customer") redirect("/customer/dashboard");
 
-  // --- ЛОГИКА ПАГИНАЦИИ ---
-  const { page: pageParam } = await searchParams;
-  const currentPage = Number(pageParam) || 1;
-  const ITEMS_PER_PAGE = 5; // Количество карточек на одной странице
+  // --- ЛОГИКА ФИЛЬТРАЦИИ ---
+  const sp = await searchParams;
+  const currentPage = Number(sp.page) || 1;
+  const query = sp.query || "";
+  const categoryFilter = sp.category || "";
+  const activeTab = sp.tab || "active"; // По умолчанию показываем активные
+  
+  const ITEMS_PER_PAGE = 5;
   const offset = (currentPage - 1) * ITEMS_PER_PAGE;
 
-  // 1. Получаем тендеры с лимитом
+  // Формируем условия
+  const filters = [];
+  
+  // Логика переключения статусов
+  if (activeTab === "active") {
+    filters.push(eq(tenders.status, 'Активен'));
+  } else {
+    filters.push(eq(tenders.status, 'Завершен'));
+  }
+  
+  if (query) {
+    filters.push(ilike(tenders.title, `%${query}%`));
+  }
+  
+  if (categoryFilter) {
+    filters.push(eq(tenders.category, categoryFilter));
+  }
+
+  const whereCondition = and(...filters);
+
+  // 1. Получаем тендеры
   const availableTenders = await db
     .select()
     .from(tenders)
-    .where(eq(tenders.status, 'Активен'))
+    .where(whereCondition)
     .orderBy(desc(tenders.createdAt))
     .limit(ITEMS_PER_PAGE)
     .offset(offset);
 
-  // 2. Считаем общее кол-во активных тендеров для кнопок
-  const [{ count }] = await db
+  // 2. Считаем количество
+  const [totalResult] = await db
     .select({ count: sql<number>`count(*)` })
     .from(tenders)
-    .where(eq(tenders.status, 'Активен'));
+    .where(whereCondition);
     
+  const count = totalResult.count;
   const totalPages = Math.ceil(count / ITEMS_PER_PAGE);
-  // --- КОНЕЦ ЛОГИКИ ---
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-8">
       <div className="max-w-5xl mx-auto">
-        <header className="mb-10 flex justify-between items-end">
+        <header className="mb-8 flex justify-between items-end">
           <div>
             <h1 className="text-4xl font-black text-slate-900 tracking-tight">
               Витрина закупок
             </h1>
             <p className="text-slate-500 mt-2 font-medium">
-              Здравствуйте, <span className="text-blue-600">{session?.user?.name || 'Гость'}</span>! Выберите лот для участия.
+              Доступные лоты и архив завершенных закупок
             </p>
           </div>
         </header>
 
+        {/* ТАБЫ ПЕРЕКЛЮЧЕНИЯ */}
+        <div className="flex gap-2 mb-6 bg-slate-200/50 p-1.5 rounded-2xl w-fit">
+          <Link 
+            href={{ query: { ...sp, tab: 'active', page: 1 } }}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black transition-all ${
+              activeTab === 'active' 
+                ? 'bg-white text-blue-600 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Clock size={16} /> Активные
+          </Link>
+          <Link 
+            href={{ query: { ...sp, tab: 'closed', page: 1 } }}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black transition-all ${
+              activeTab === 'closed' 
+                ? 'bg-white text-slate-900 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <CheckCircle2 size={16} /> Завершенные
+          </Link>
+        </div>
+
+        {/* ПАНЕЛЬ ПОИСКА */}
+        <div className="mb-8 flex flex-wrap gap-4 items-center bg-white p-4 rounded-[28px] border border-slate-200 shadow-sm">
+          <form className="flex-1 flex gap-4 items-center">
+            {/* Скрытое поле, чтобы при поиске не терять активный таб */}
+            <input type="hidden" name="tab" value={activeTab} />
+            
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input 
+                name="query"
+                defaultValue={query}
+                placeholder="Поиск по названию..."
+                className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+
+            <select 
+              name="category" 
+              defaultValue={categoryFilter}
+              className="bg-slate-50 border-none rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-600"
+            >
+              <option value="">Все категории</option>
+              <option value="СТРОИТЕЛЬСТВО • СМР">Строительство</option>
+              <option value="УСЛУГИ">Услуги</option>
+              <option value="ТОВАРЫ">Товары</option>
+            </select>
+
+            <button type="submit" className={`px-8 py-3 rounded-2xl text-sm font-black transition-all shadow-lg ${
+              activeTab === 'active' ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-100' : 'bg-slate-800 hover:bg-slate-900 text-white shadow-slate-200'
+            }`}>
+              Найти
+            </button>
+          </form>
+        </div>
+
         <div className="grid gap-6">
           {availableTenders.length === 0 ? (
             <div className="bg-white border-2 border-dashed border-slate-200 rounded-[40px] p-20 text-center">
-              <p className="text-slate-400 font-bold uppercase tracking-widest">Активных лотов не найдено</p>
+              <p className="text-slate-400 font-bold uppercase tracking-widest">
+                {activeTab === 'active' ? 'Нет активных лотов' : 'Архив пуст'}
+              </p>
             </div>
           ) : (
             <>
               {availableTenders.map((t) => (
                 <Link 
-                  href={`/tenders/${t.id}`} // Исправил путь на более надежный
+                  href={`/tenders/${t.id}`}
                   key={t.id} 
-                  className="group bg-white p-8 rounded-[32px] border border-slate-200 flex justify-between items-center shadow-sm hover:shadow-xl hover:border-blue-200 transition-all duration-300"
+                  className={`group bg-white p-8 rounded-[32px] border flex justify-between items-center shadow-sm transition-all duration-300 ${
+                    activeTab === 'active' 
+                      ? 'hover:shadow-xl hover:border-blue-200 border-slate-200' 
+                      : 'opacity-80 grayscale-[0.5] hover:grayscale-0 border-slate-100'
+                  }`}
                 >
                   <div className="space-y-4">
                     <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-black uppercase tracking-widest bg-blue-600 text-white px-3 py-1 rounded-lg">
+                      <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-lg text-white ${
+                        activeTab === 'active' ? 'bg-blue-600' : 'bg-slate-400'
+                      }`}>
                         {t.category || 'Общее'}
                       </span>
-                      <span className="text-xs text-slate-400 font-bold uppercase tracking-tighter">
-                        ID: {t.id}
-                      </span>
+                      {activeTab === 'closed' && (
+                         <span className="text-[10px] font-black uppercase tracking-widest bg-red-100 text-red-600 px-3 py-1 rounded-lg">
+                           Завершен
+                         </span>
+                      )}
                     </div>
                     
                     <div>
-                      <h3 className="text-2xl font-black text-slate-800 group-hover:text-blue-600 transition-colors">
+                      <h3 className={`text-2xl font-black transition-colors ${
+                        activeTab === 'active' ? 'text-slate-800 group-hover:text-blue-600' : 'text-slate-500'
+                      }`}>
                         {t.title}
                       </h3>
-                      <div className="flex items-center gap-4 mt-2 text-slate-400 text-xs font-bold">
-                        <div className="flex items-center gap-1">
-                          <Calendar size={14} />
-                          {t.createdAt ? new Date(t.createdAt).toLocaleDateString('ru-RU') : 'Недавно'}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Tag size={14} />
-                          {t.workType || 'Поставка'}
-                        </div>
-                      </div>
                     </div>
                   </div>
 
@@ -102,19 +192,23 @@ export default async function VendorPage({
                       <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-1">
                         Бюджет лота
                       </p>
-                      <div className="text-3xl font-black text-slate-900 italic">
+                      <div className={`text-3xl font-black italic ${
+                        activeTab === 'active' ? 'text-slate-900' : 'text-slate-400'
+                      }`}>
                         {Number(t.price).toLocaleString('ru-RU')} ₸
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-2 text-blue-600 font-black text-xs uppercase tracking-widest group-hover:translate-x-1 transition-transform">
-                      Смотреть детали <Eye size={18} />
+                    <div className={`flex items-center gap-2 font-black text-xs uppercase tracking-widest transition-transform ${
+                      activeTab === 'active' ? 'text-blue-600 group-hover:translate-x-1' : 'text-slate-400'
+                    }`}>
+                      {activeTab === 'active' ? 'Смотреть детали' : 'Просмотр архива'} <Eye size={18} />
                     </div>
                   </div>
                 </Link>
               ))}
 
-              {/* ПАНЕЛЬ УПРАВЛЕНИЯ СТРАНИЦАМИ */}
+              {/* ПАГИНАЦИЯ */}
               {totalPages > 1 && (
                 <div className="mt-10 flex items-center justify-between bg-white p-4 rounded-[24px] border border-slate-100 shadow-sm">
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-4">
@@ -123,25 +217,25 @@ export default async function VendorPage({
                   
                   <div className="flex gap-2">
                     <Link
-                      href={`?page=${currentPage - 1}`}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-xl border font-bold text-xs uppercase tracking-widest transition-all ${
+                      href={{ query: { ...sp, page: Math.max(1, currentPage - 1) } }}
+                      className={`px-4 py-2 rounded-xl border font-bold text-xs uppercase tracking-widest transition-all ${
                         currentPage <= 1 
                           ? 'pointer-events-none opacity-20' 
-                          : 'hover:bg-slate-50 hover:border-blue-300 text-slate-600'
+                          : 'hover:bg-slate-50 text-slate-600'
                       }`}
                     >
-                      <ChevronLeft size={16} /> Назад
+                      <ChevronLeft size={16} />
                     </Link>
 
                     <Link
-                      href={`?page=${currentPage + 1}`}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-xl border font-bold text-xs uppercase tracking-widest transition-all ${
+                      href={{ query: { ...sp, page: Math.min(totalPages, currentPage + 1) } }}
+                      className={`px-4 py-2 rounded-xl border font-bold text-xs uppercase tracking-widest transition-all ${
                         currentPage >= totalPages 
                           ? 'pointer-events-none opacity-20' 
-                          : 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-slate-900 border-slate-900 text-white'
                       }`}
                     >
-                      Вперед <ChevronRight size={16} />
+                      <ChevronRight size={16} />
                     </Link>
                   </div>
                 </div>

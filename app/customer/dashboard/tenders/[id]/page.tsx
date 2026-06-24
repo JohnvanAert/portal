@@ -3,7 +3,7 @@ import { tenders, bids } from '@/lib/schema';
 import { eq, desc } from 'drizzle-orm';
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { ArrowLeft, User, MessageSquare, Calendar, Tag, Paperclip, ShieldCheck, FileSpreadsheet, Layers } from 'lucide-react';
+import { ArrowLeft, User, MessageSquare, Calendar, Tag, Paperclip, ShieldCheck, FileSpreadsheet, Layers, FileText } from 'lucide-react';
 import Link from 'next/link';
 import SelectWinnerButton from '@/components/SelectWinnerButton';
 
